@@ -200,5 +200,6 @@ export async function lookupSong(song: string, artist: string): Promise<SongLook
     bpm: parsed.bpm,
     sections: parsed.sections,
     sourceUrl,
+    source: "hooktheory" as const,
   };
 }

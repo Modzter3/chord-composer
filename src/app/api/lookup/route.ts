@@ -1,4 +1,4 @@
-import { lookupSong } from "@/lib/hooktheory";
+import { lookupSong } from "@/lib/lookup";
 import type { ComposeRequest } from "@/lib/types";
 import { NextResponse } from "next/server";
 
@@ -17,7 +17,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const lookup = await lookupSong(song, artist);
+    const lookup = await lookupSong(song, artist, {
+      manualChart: body.manualChart,
+    });
     const bpm = body.bpm ?? lookup.bpm;
 
     return NextResponse.json({
@@ -26,6 +28,7 @@ export async function POST(request: Request) {
       key: lookup.key,
       bpm,
       sourceUrl: lookup.sourceUrl,
+      source: lookup.source,
       sections: lookup.sections.map((section) => ({
         name: section.name,
         chords: section.chords.map((chord) => ({

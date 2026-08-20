@@ -15,6 +15,7 @@
     "next": "16.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "tonal": "^6.4.3",
     "tone": "^15.1.22"
   },
   "devDependencies": {

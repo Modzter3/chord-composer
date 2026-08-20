@@ -1,4 +1,4 @@
-import { lookupSong } from "@/lib/hooktheory";
+import { lookupSong } from "@/lib/lookup";
 import { generateMidi } from "@/lib/midi";
 import type { ComposeRequest, ComposeStyle } from "@/lib/types";
 import { NextResponse } from "next/server";
@@ -33,7 +33,9 @@ export async function POST(request: Request) {
       : "block";
     const beatsPerChord = Math.min(Math.max(body.beatsPerChord ?? 4, 1), 8);
 
-    const lookup = await lookupSong(song, artist);
+    const lookup = await lookupSong(song, artist, {
+      manualChart: body.manualChart,
+    });
     const bpm = body.bpm ?? lookup.bpm;
 
     const midiBytes = generateMidi(lookup.sections, {
@@ -55,6 +57,7 @@ export async function POST(request: Request) {
         "X-Song-Key": lookup.key,
         "X-Song-Bpm": String(bpm),
         "X-Song-Source": lookup.sourceUrl,
+        "X-Song-Data-Source": lookup.source,
         "X-Song-Sections": JSON.stringify(
           lookup.sections.map((section) => ({
             name: section.name,

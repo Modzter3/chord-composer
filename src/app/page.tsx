@@ -56,6 +56,17 @@ function sanitizeFilename(title: string): string {
     .slice(0, 80);
 }
 
+function sourceLabel(source: LookupResponse["source"]): string {
+  switch (source) {
+    case "hooktheory":
+      return "Hooktheory TheoryTab";
+    case "ultimate-guitar":
+      return "Ultimate Guitar";
+    case "manual":
+      return "Pasted chart";
+  }
+}
+
 export default function Home() {
   const [song, setSong] = useState("");
   const [artist, setArtist] = useState("");
@@ -72,6 +83,8 @@ export default function Home() {
   const [midiBytes, setMidiBytes] = useState<Uint8Array | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
+  const [manualChart, setManualChart] = useState("");
+  const [showManualChart, setShowManualChart] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const sections = composition?.sections ?? [];
@@ -135,7 +148,7 @@ export default function Home() {
       const response = await fetch("/api/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ song, artist, bpm, beatsPerChord }),
+        body: JSON.stringify({ song, artist, bpm, beatsPerChord, manualChart: manualChart.trim() || undefined }),
       });
 
       const payload = (await response.json()) as LookupResponse & { error?: string };
@@ -343,6 +356,36 @@ export default function Home() {
                 </label>
               </div>
 
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <button
+                  type="button"
+                  onClick={() => setShowManualChart((open) => !open)}
+                  className="flex w-full items-center justify-between text-left"
+                >
+                  <span className="text-sm font-medium text-violet-100/90">
+                    Obscure song? Paste chords manually
+                  </span>
+                  <span className="text-sm text-[var(--muted)]">
+                    {showManualChart ? "Hide" : "Show"}
+                  </span>
+                </button>
+                {showManualChart ? (
+                  <div className="mt-4 space-y-2">
+                    <p className="text-sm text-[var(--muted)]">
+                      If Hooktheory and Ultimate Guitar both miss, paste a chord chart from anywhere.
+                      Standard formats like Ultimate Guitar work best.
+                    </p>
+                    <textarea
+                      value={manualChart}
+                      onChange={(event) => setManualChart(event.target.value)}
+                      placeholder={"Intro: ( Am7 D7 ) x4\nAm7 D7 Am7 D7\n..."}
+                      rows={8}
+                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 font-mono text-sm text-violet-50 outline-none transition focus:border-violet-400/50 focus:ring-2 focus:ring-violet-500/20"
+                    />
+                  </div>
+                ) : null}
+              </div>
+
               {error ? (
                 <div className="rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                   {error}
@@ -478,6 +521,9 @@ export default function Home() {
                   <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
                     {totalChords} chords
                   </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
+                    Source: {sourceLabel(composition.source)}
+                  </span>
                   {audioDuration > 0 ? (
                     <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
                       {Math.round(audioDuration)}s
@@ -493,8 +539,8 @@ export default function Home() {
                 <div className="mt-4 space-y-3">
                   {[
                     ["Someone Like You", "Adele"],
+                    ["Lay It On The Line", "Triumph"],
                     ["Creep", "Radiohead"],
-                    ["Bad Guy", "Billie Eilish"],
                   ].map(([exampleSong, exampleArtist]) => (
                     <button
                       key={exampleSong}
