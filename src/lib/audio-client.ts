@@ -2,6 +2,7 @@
 
 import * as Tone from "tone";
 import { midiToNoteName } from "./chords";
+import { loadLamejs } from "./lame-loader";
 import { getCompositionDuration, type ScheduledNote } from "./schedule";
 
 function encodeWav(buffer: AudioBuffer): Blob {
@@ -43,47 +44,36 @@ function encodeWav(buffer: AudioBuffer): Blob {
   return new Blob([arrayBuffer], { type: "audio/wav" });
 }
 
-async function wavToMp3(wavBlob: Blob): Promise<Blob> {
-  const { Mp3Encoder } = await import("lamejs");
+async function wavBlobToMp3(wavBlob: Blob): Promise<Blob> {
+  const lamejs = await loadLamejs();
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const buffer = reader.result as ArrayBuffer;
-        const view = new DataView(buffer);
-        const samples = new Int16Array(buffer, 44);
+  const buffer = await wavBlob.arrayBuffer();
+  const view = new DataView(buffer);
+  const samples = new Int16Array(buffer, 44);
+  const sampleRate = view.getUint32(24, true);
 
-        const sampleRate = view.getUint32(24, true);
-        const encoder = new Mp3Encoder(1, sampleRate, 128);
-        const mp3Chunks: Int8Array[] = [];
-        const blockSize = 1152;
+  const encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+  const mp3Chunks: Int8Array[] = [];
+  const blockSize = 1152;
 
-        for (let index = 0; index < samples.length; index += blockSize) {
-          const chunk = samples.subarray(index, index + blockSize);
-          const encoded = encoder.encodeBuffer(chunk);
-          if (encoded.length > 0) mp3Chunks.push(encoded);
-        }
+  for (let index = 0; index < samples.length; index += blockSize) {
+    const chunk = samples.subarray(index, index + blockSize);
+    const encoded = encoder.encodeBuffer(chunk);
+    if (encoded.length > 0) mp3Chunks.push(encoded);
+  }
 
-        const flushed = encoder.flush();
-        if (flushed.length > 0) mp3Chunks.push(flushed);
+  const flushed = encoder.flush();
+  if (flushed.length > 0) mp3Chunks.push(flushed);
 
-        const totalLength = mp3Chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-        const merged = new Uint8Array(totalLength);
-        let writeOffset = 0;
-        for (const chunk of mp3Chunks) {
-          merged.set(chunk, writeOffset);
-          writeOffset += chunk.length;
-        }
+  const totalLength = mp3Chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Uint8Array(totalLength);
+  let writeOffset = 0;
+  for (const chunk of mp3Chunks) {
+    merged.set(chunk, writeOffset);
+    writeOffset += chunk.length;
+  }
 
-        resolve(new Blob([merged], { type: "audio/mpeg" }));
-      } catch (error) {
-        reject(error);
-      }
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsArrayBuffer(wavBlob);
-  });
+  return new Blob([merged], { type: "audio/mpeg" });
 }
 
 async function renderAudioBuffer(notes: ScheduledNote[]): Promise<AudioBuffer> {
@@ -111,11 +101,14 @@ async function renderAudioBuffer(notes: ScheduledNote[]): Promise<AudioBuffer> {
 
 export async function renderCompositionAudio(
   notes: ScheduledNote[],
-): Promise<{ wav: Blob; mp3: Blob; duration: number }> {
+): Promise<{ wav: Blob; duration: number }> {
   const audioBuffer = await renderAudioBuffer(notes);
   const wav = encodeWav(audioBuffer);
-  const mp3 = await wavToMp3(wav);
-  return { wav, mp3, duration: audioBuffer.duration };
+  return { wav, duration: audioBuffer.duration };
+}
+
+export async function encodeMp3FromWav(wav: Blob): Promise<Blob> {
+  return wavBlobToMp3(wav);
 }
 
 let activeSynth: Tone.PolySynth<Tone.Synth> | null = null;

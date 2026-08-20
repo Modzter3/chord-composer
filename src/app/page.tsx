@@ -2,6 +2,7 @@
 
 import {
   downloadBlob,
+  encodeMp3FromWav,
   playComposition,
   renderCompositionAudio,
   stopComposition,
@@ -67,7 +68,7 @@ export default function Home() {
   const [composition, setComposition] = useState<LookupResponse | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wavBlob, setWavBlob] = useState<Blob | null>(null);
-  const [mp3Blob, setMp3Blob] = useState<Blob | null>(null);
+  const [mp3Loading, setMp3Loading] = useState(false);
   const [midiBytes, setMidiBytes] = useState<Uint8Array | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioDuration, setAudioDuration] = useState(0);
@@ -98,7 +99,7 @@ export default function Home() {
         style: nextStyle,
       });
 
-      const { wav, mp3, duration } = await renderCompositionAudio(scheduled);
+      const { wav, duration } = await renderCompositionAudio(scheduled);
       const midi = generateMidi(data.sections as SongSection[], {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
@@ -109,10 +110,9 @@ export default function Home() {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
 
       setWavBlob(wav);
-      setMp3Blob(mp3);
       setMidiBytes(midi);
       setAudioDuration(duration);
-      setAudioUrl(URL.createObjectURL(mp3));
+      setAudioUrl(URL.createObjectURL(wav));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to render audio preview.");
     } finally {
@@ -127,7 +127,6 @@ export default function Home() {
     setComposition(null);
     setAudioUrl(null);
     setWavBlob(null);
-    setMp3Blob(null);
     setMidiBytes(null);
     setIsPlaying(false);
     await stopComposition();
@@ -182,9 +181,18 @@ export default function Home() {
     downloadBlob(new Blob([new Uint8Array(midiBytes)], { type: "audio/midi" }), `${sanitizeFilename(composition.title)}.mid`);
   }
 
-  function handleDownloadMp3() {
-    if (!mp3Blob || !composition) return;
-    downloadBlob(mp3Blob, `${sanitizeFilename(composition.title)}.mp3`);
+  async function handleDownloadMp3() {
+    if (!wavBlob || !composition) return;
+    setMp3Loading(true);
+    setError(null);
+    try {
+      const mp3 = await encodeMp3FromWav(wavBlob);
+      downloadBlob(mp3, `${sanitizeFilename(composition.title)}.mp3`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to encode MP3.");
+    } finally {
+      setMp3Loading(false);
+    }
   }
 
   function handleDownloadWav() {
@@ -397,11 +405,16 @@ export default function Home() {
                 <div className="mt-4 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={handleDownloadMp3}
-                    className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400"
+                    onClick={() => void handleDownloadMp3()}
+                    disabled={mp3Loading}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400 disabled:opacity-60"
                   >
-                    <Download className="h-4 w-4" />
-                    Download MP3
+                    {mp3Loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {mp3Loading ? "Encoding MP3…" : "Download MP3"}
                   </button>
                   <button
                     type="button"
