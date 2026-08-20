@@ -1,4 +1,4 @@
-import type { ComposeStyle, ParsedChord, SongSection } from "./types";
+import type { ComposeStyle, PlaybackMode, SongSection } from "./types";
 
 export interface ScheduledNote {
   midi: number;
@@ -7,12 +7,41 @@ export interface ScheduledNote {
   velocity: number;
 }
 
-function flattenSections(sections: SongSection[]): ParsedChord[] {
-  const chords: ParsedChord[] = [];
+function flattenSections(sections: SongSection[]): { label: string; notes: number[] }[] {
+  const chords: { label: string; notes: number[] }[] = [];
   for (const section of sections) {
     chords.push(...section.chords);
   }
   return chords;
+}
+
+export function scheduleTranscription(sections: SongSection[]): ScheduledNote[] {
+  const notes: ScheduledNote[] = [];
+  let timeOffset = 0;
+
+  for (const section of sections) {
+    const transcription = section.transcription;
+    if (!transcription) continue;
+
+    const beatDur = 60 / transcription.bpm;
+
+    for (const note of transcription.melody) {
+      notes.push({
+        midi: note.midi,
+        time: timeOffset + (note.beat - 1) * beatDur,
+        duration: note.duration * beatDur * 0.92,
+        velocity: 0.8,
+      });
+    }
+
+    timeOffset += (transcription.endBeat - 1) * beatDur;
+  }
+
+  return notes;
+}
+
+export function hasTranscription(sections: SongSection[]): boolean {
+  return sections.some((section) => section.transcription != null);
 }
 
 export function scheduleComposition(
@@ -68,4 +97,24 @@ export function scheduleComposition(
 export function getCompositionDuration(notes: ScheduledNote[]): number {
   if (notes.length === 0) return 1;
   return Math.max(...notes.map((note) => note.time + note.duration)) + 0.5;
+}
+
+export function schedulePlayback(
+  sections: SongSection[],
+  options: {
+    playbackMode: PlaybackMode;
+    bpm: number;
+    beatsPerChord: number;
+    style: ComposeStyle;
+  },
+): ScheduledNote[] {
+  if (options.playbackMode === "transcription" && hasTranscription(sections)) {
+    return scheduleTranscription(sections);
+  }
+
+  return scheduleComposition(sections, {
+    bpm: options.bpm,
+    beatsPerChord: options.beatsPerChord,
+    style: options.style,
+  });
 }

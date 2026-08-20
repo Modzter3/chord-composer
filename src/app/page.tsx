@@ -9,8 +9,15 @@ import {
 } from "@/lib/audio-client";
 import { generateMidi } from "@/lib/midi";
 import { INSTRUMENT_OPTIONS } from "@/lib/instruments";
-import { scheduleComposition } from "@/lib/schedule";
-import type { ChartLength, ComposeInstrument, ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
+import { schedulePlayback } from "@/lib/schedule";
+import type {
+  ChartLength,
+  ComposeInstrument,
+  ComposeStyle,
+  LookupResponse,
+  PlaybackMode,
+  SongSection,
+} from "@/lib/types";
 import {
   Download,
   Loader2,
@@ -22,6 +29,23 @@ import {
   Waves,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+
+const PLAYBACK_MODE_OPTIONS: {
+  id: PlaybackMode;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "transcription",
+    label: "Transcription",
+    description: "Play Hooktheory's actual melody and chord timing.",
+  },
+  {
+    id: "chords",
+    label: "Chord sketch",
+    description: "Simplified chord blocks — good for quick Suno refs.",
+  },
+];
 
 const STYLE_OPTIONS: {
   id: ComposeStyle;
@@ -89,6 +113,7 @@ export default function Home() {
   const [song, setSong] = useState("");
   const [artist, setArtist] = useState("");
   const [style, setStyle] = useState<ComposeStyle>("block");
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("transcription");
   const [instrument, setInstrument] = useState<ComposeInstrument>("piano");
   const [bpm, setBpm] = useState(120);
   const [beatsPerChord, setBeatsPerChord] = useState(4);
@@ -129,10 +154,14 @@ export default function Home() {
     };
   }, [audioUrl]);
 
+  const transcriptionAvailable = composition?.hasTranscription ?? false;
+  const usingTranscription = playbackMode === "transcription" && transcriptionAvailable;
+
   async function rebuildAudio(
     data: LookupResponse,
     sectionsToRender: SongSection[],
     nextStyle: ComposeStyle,
+    nextPlaybackMode: PlaybackMode,
     nextInstrument: ComposeInstrument,
     nextBpm: number,
     nextBeats: number,
@@ -141,7 +170,8 @@ export default function Home() {
     setError(null);
 
     try {
-      const scheduled = scheduleComposition(sectionsToRender, {
+      const scheduled = schedulePlayback(sectionsToRender, {
+        playbackMode: nextPlaybackMode,
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
@@ -152,6 +182,7 @@ export default function Home() {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
+        playbackMode: nextPlaybackMode,
         instrument: nextInstrument,
         trackName: `${data.title} - ${data.artist}`,
       });
@@ -201,6 +232,8 @@ export default function Home() {
 
       setComposition(payload);
       if (payload.bpm) setBpm(payload.bpm);
+      const nextPlaybackMode = payload.hasTranscription ? "transcription" : "chords";
+      setPlaybackMode(nextPlaybackMode);
       setLoading(false);
       const initialSections =
         chartLength === "full" && payload.sectionsFull?.length
@@ -210,6 +243,7 @@ export default function Home() {
         payload,
         initialSections as SongSection[],
         style,
+        nextPlaybackMode,
         instrument,
         payload.bpm ?? bpm,
         beatsPerChord,
@@ -230,7 +264,8 @@ export default function Home() {
       return;
     }
 
-    const scheduled = scheduleComposition(activeSections as SongSection[], {
+    const scheduled = schedulePlayback(activeSections as SongSection[], {
+      playbackMode,
       bpm,
       beatsPerChord,
       style,
@@ -332,8 +367,56 @@ export default function Home() {
                 </label>
               </div>
 
-              <div>
-                <p className="mb-3 text-sm font-medium text-violet-100/90">Arrangement style</p>
+              {transcriptionAvailable ? (
+                <div>
+                  <p className="mb-3 text-sm font-medium text-violet-100/90">Playback</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {PLAYBACK_MODE_OPTIONS.map((option) => {
+                      const active = playbackMode === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            setPlaybackMode(option.id);
+                            if (composition) {
+                              void rebuildAudio(
+                                composition,
+                                activeSections as SongSection[],
+                                style,
+                                option.id,
+                                instrument,
+                                bpm,
+                                beatsPerChord,
+                              );
+                            }
+                          }}
+                          className={`rounded-2xl border p-4 text-left transition ${
+                            active
+                              ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
+                              : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <p className="font-medium text-white">{option.label}</p>
+                          <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+                            {option.description}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className={usingTranscription ? "opacity-50" : undefined}>
+                <p className="mb-3 text-sm font-medium text-violet-100/90">
+                  Arrangement style
+                  {usingTranscription ? (
+                    <span className="ml-2 text-xs font-normal text-[var(--muted)]">
+                      (used in chord sketch mode)
+                    </span>
+                  ) : null}
+                </p>
                 <div className="grid gap-3 sm:grid-cols-3">
                   {STYLE_OPTIONS.map((option) => {
                     const Icon = option.icon;
@@ -342,6 +425,7 @@ export default function Home() {
                       <button
                         key={option.id}
                         type="button"
+                        disabled={usingTranscription}
                         onClick={() => {
                           setStyle(option.id);
                           if (composition) {
@@ -349,6 +433,7 @@ export default function Home() {
                               composition,
                               activeSections as SongSection[],
                               option.id,
+                              playbackMode,
                               instrument,
                               bpm,
                               beatsPerChord,
@@ -359,7 +444,7 @@ export default function Home() {
                           active
                             ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
                             : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
-                        }`}
+                        } ${usingTranscription ? "cursor-not-allowed" : ""}`}
                       >
                         <Icon
                           className={`mb-3 h-5 w-5 ${active ? "text-violet-300" : "text-[var(--muted)]"}`}
@@ -390,6 +475,7 @@ export default function Home() {
                               composition,
                               activeSections as SongSection[],
                               style,
+                              playbackMode,
                               option.id,
                               bpm,
                               beatsPerChord,
@@ -433,6 +519,7 @@ export default function Home() {
                               composition,
                               sectionsToRender as SongSection[],
                               style,
+                              playbackMode,
                               instrument,
                               bpm,
                               beatsPerChord,
@@ -456,10 +543,17 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className={`grid gap-4 sm:grid-cols-2 ${usingTranscription ? "opacity-50" : ""}`}>
                 <label className="block space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-violet-100/90">Tempo</span>
+                    <span className="text-sm font-medium text-violet-100/90">
+                      Tempo
+                      {usingTranscription ? (
+                        <span className="ml-1 text-xs font-normal text-[var(--muted)]">
+                          (from transcription)
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="rounded-full bg-violet-500/15 px-3 py-1 text-sm text-violet-200">
                       {bpm} BPM
                     </span>
@@ -469,6 +563,7 @@ export default function Home() {
                     min={60}
                     max={180}
                     value={bpm}
+                    disabled={usingTranscription}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBpm(next);
@@ -477,6 +572,7 @@ export default function Home() {
                           composition,
                           activeSections as SongSection[],
                           style,
+                          playbackMode,
                           instrument,
                           next,
                           beatsPerChord,
@@ -488,7 +584,14 @@ export default function Home() {
                 </label>
                 <label className="block space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium text-violet-100/90">Beats per chord</span>
+                    <span className="text-sm font-medium text-violet-100/90">
+                      Beats per chord
+                      {usingTranscription ? (
+                        <span className="ml-1 text-xs font-normal text-[var(--muted)]">
+                          (chord sketch only)
+                        </span>
+                      ) : null}
+                    </span>
                     <span className="rounded-full bg-violet-500/15 px-3 py-1 text-sm text-violet-200">
                       {beatsPerChord}
                     </span>
@@ -498,6 +601,7 @@ export default function Home() {
                     min={1}
                     max={8}
                     value={beatsPerChord}
+                    disabled={usingTranscription}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBeatsPerChord(next);
@@ -506,6 +610,7 @@ export default function Home() {
                           composition,
                           activeSections as SongSection[],
                           style,
+                          playbackMode,
                           instrument,
                           bpm,
                           next,

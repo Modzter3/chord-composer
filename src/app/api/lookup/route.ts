@@ -1,8 +1,20 @@
 import { lookupSong } from "@/lib/lookup";
-import type { ComposeRequest } from "@/lib/types";
+import { hasTranscription } from "@/lib/schedule";
+import type { ComposeRequest, SongSection } from "@/lib/types";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
+
+function serializeSection(section: SongSection) {
+  return {
+    name: section.name,
+    chords: section.chords.map((chord) => ({
+      label: chord.label,
+      notes: chord.notes,
+    })),
+    transcription: section.transcription,
+  };
+}
 
 export async function POST(request: Request) {
   try {
@@ -30,20 +42,9 @@ export async function POST(request: Request) {
       bpm,
       sourceUrl: lookup.sourceUrl,
       source: lookup.source,
-      sections: lookup.sections.map((section) => ({
-        name: section.name,
-        chords: section.chords.map((chord) => ({
-          label: chord.label,
-          notes: chord.notes,
-        })),
-      })),
-      sectionsFull: lookup.sectionsFull?.map((section) => ({
-        name: section.name,
-        chords: section.chords.map((chord) => ({
-          label: chord.label,
-          notes: chord.notes,
-        })),
-      })),
+      hasTranscription: hasTranscription(lookup.sections),
+      sections: lookup.sections.map(serializeSection),
+      sectionsFull: lookup.sectionsFull?.map(serializeSection),
     });
   } catch (error) {
     const message =

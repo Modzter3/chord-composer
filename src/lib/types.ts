@@ -5,9 +5,32 @@ export interface ParsedChord {
   notes: number[];
 }
 
+export interface TranscriptionMelodyNote {
+  beat: number;
+  duration: number;
+  midi: number;
+}
+
+export interface TranscriptionTimedChord {
+  beat: number;
+  duration: number;
+  label: string;
+  notes: number[];
+}
+
+export interface SectionTranscription {
+  hash: string;
+  bpm: number;
+  endBeat: number;
+  key: { tonic: string; scale: "major" | "minor" };
+  melody: TranscriptionMelodyNote[];
+  timedChords: TranscriptionTimedChord[];
+}
+
 export interface SongSection {
   name: string;
   chords: ParsedChord[];
+  transcription?: SectionTranscription;
 }
 
 export interface SongLookupResult {
@@ -25,6 +48,8 @@ export interface SongLookupResult {
 export type { ComposeInstrument } from "./instruments";
 
 export type ComposeStyle = "block" | "arpeggio" | "bass";
+
+export type PlaybackMode = "transcription" | "chords";
 
 export type ChartLength = "short" | "full";
 
@@ -45,6 +70,7 @@ export interface LookupResponse {
   bpm: number;
   sourceUrl: string;
   source: SongLookupResult["source"];
+  hasTranscription: boolean;
   sections: SongSection[];
   sectionsFull?: SongSection[];
 }

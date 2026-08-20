@@ -1,5 +1,10 @@
 import * as cheerio from "cheerio";
 import { sindToChord } from "./chords";
+import {
+  fetchTranscriptions,
+  mergeTranscriptionChords,
+  parseSectionHashes,
+} from "./hookpad";
 import { normalizeForMatch, slugify } from "./slugify";
 import type { ParsedChord, SongLookupResult, SongSection } from "./types";
 
@@ -198,8 +203,38 @@ export async function lookupSong(song: string, artist: string): Promise<SongLook
     key: parsed.key,
     scale: parsed.scale,
     bpm: parsed.bpm,
-    sections: parsed.sections,
+    sections: await enrichSectionsWithTranscription(html, parsed.sections),
     sourceUrl,
     source: "hooktheory" as const,
   };
+}
+
+async function enrichSectionsWithTranscription(
+  html: string,
+  sections: SongSection[],
+): Promise<SongSection[]> {
+  const refs = parseSectionHashes(html);
+  if (refs.length === 0) return sections;
+
+  try {
+    const transcriptions = await fetchTranscriptions(refs);
+
+    return sections.map((section) => {
+      const transcription =
+        transcriptions.get(section.name) ??
+        [...transcriptions.entries()].find(([name]) =>
+          normalizeForMatch(name).includes(normalizeForMatch(section.name)),
+        )?.[1];
+
+      if (!transcription) return section;
+
+      return {
+        ...section,
+        transcription,
+        chords: mergeTranscriptionChords(transcription),
+      };
+    });
+  } catch {
+    return sections;
+  }
 }

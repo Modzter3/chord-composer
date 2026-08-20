@@ -1,5 +1,6 @@
 import { lookupSong } from "@/lib/lookup";
 import { generateMidi } from "@/lib/midi";
+import { hasTranscription } from "@/lib/schedule";
 import type { ComposeRequest, ComposeStyle } from "@/lib/types";
 import { NextResponse } from "next/server";
 
@@ -39,10 +40,13 @@ export async function POST(request: Request) {
     });
     const bpm = body.bpm ?? lookup.bpm;
 
+    const playbackMode = hasTranscription(lookup.sections) ? "transcription" : "chords";
+
     const midiBytes = generateMidi(lookup.sections, {
       bpm,
       beatsPerChord,
       style,
+      playbackMode,
       trackName: `${lookup.title} - ${lookup.artist}`,
     });
 
