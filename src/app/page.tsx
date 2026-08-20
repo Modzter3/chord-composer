@@ -8,8 +8,9 @@ import {
   stopComposition,
 } from "@/lib/audio-client";
 import { generateMidi } from "@/lib/midi";
+import { INSTRUMENT_OPTIONS } from "@/lib/instruments";
 import { scheduleComposition } from "@/lib/schedule";
-import type { ChartLength, ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
+import type { ChartLength, ComposeInstrument, ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
 import {
   Download,
   Loader2,
@@ -88,6 +89,7 @@ export default function Home() {
   const [song, setSong] = useState("");
   const [artist, setArtist] = useState("");
   const [style, setStyle] = useState<ComposeStyle>("block");
+  const [instrument, setInstrument] = useState<ComposeInstrument>("piano");
   const [bpm, setBpm] = useState(120);
   const [beatsPerChord, setBeatsPerChord] = useState(4);
   const [loading, setLoading] = useState(false);
@@ -131,6 +133,7 @@ export default function Home() {
     data: LookupResponse,
     sectionsToRender: SongSection[],
     nextStyle: ComposeStyle,
+    nextInstrument: ComposeInstrument,
     nextBpm: number,
     nextBeats: number,
   ) {
@@ -144,11 +147,12 @@ export default function Home() {
         style: nextStyle,
       });
 
-      const { wav, duration } = await renderCompositionAudio(scheduled);
+      const { wav, duration } = await renderCompositionAudio(scheduled, nextInstrument);
       const midi = generateMidi(sectionsToRender, {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
+        instrument: nextInstrument,
         trackName: `${data.title} - ${data.artist}`,
       });
 
@@ -202,7 +206,14 @@ export default function Home() {
         chartLength === "full" && payload.sectionsFull?.length
           ? payload.sectionsFull
           : payload.sections;
-      await rebuildAudio(payload, initialSections as SongSection[], style, payload.bpm ?? bpm, beatsPerChord);
+      await rebuildAudio(
+        payload,
+        initialSections as SongSection[],
+        style,
+        instrument,
+        payload.bpm ?? bpm,
+        beatsPerChord,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setLoading(false);
@@ -225,7 +236,7 @@ export default function Home() {
       style,
     });
 
-    await playComposition(scheduled);
+    await playComposition(scheduled, instrument);
     setIsPlaying(true);
 
     const durationMs = (audioDuration || 30) * 1000;
@@ -338,6 +349,7 @@ export default function Home() {
                               composition,
                               activeSections as SongSection[],
                               option.id,
+                              instrument,
                               bpm,
                               beatsPerChord,
                             );
@@ -354,6 +366,44 @@ export default function Home() {
                         />
                         <p className="font-medium text-white">{option.label}</p>
                         <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+                          {option.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-sm font-medium text-violet-100/90">Instrument</p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {INSTRUMENT_OPTIONS.map((option) => {
+                    const active = instrument === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setInstrument(option.id);
+                          if (composition) {
+                            void rebuildAudio(
+                              composition,
+                              activeSections as SongSection[],
+                              style,
+                              option.id,
+                              bpm,
+                              beatsPerChord,
+                            );
+                          }
+                        }}
+                        className={`rounded-2xl border px-4 py-3 text-left transition ${
+                          active
+                            ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
+                            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <p className="font-medium text-white">{option.label}</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)]">
                           {option.description}
                         </p>
                       </button>
@@ -383,6 +433,7 @@ export default function Home() {
                               composition,
                               sectionsToRender as SongSection[],
                               style,
+                              instrument,
                               bpm,
                               beatsPerChord,
                             );
@@ -426,6 +477,7 @@ export default function Home() {
                           composition,
                           activeSections as SongSection[],
                           style,
+                          instrument,
                           next,
                           beatsPerChord,
                         );
@@ -454,6 +506,7 @@ export default function Home() {
                           composition,
                           activeSections as SongSection[],
                           style,
+                          instrument,
                           bpm,
                           next,
                         );

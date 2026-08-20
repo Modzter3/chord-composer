@@ -22,6 +22,8 @@ export interface SongLookupResult {
   source: "hooktheory" | "ultimate-guitar" | "manual";
 }
 
+export type { ComposeInstrument } from "./instruments";
+
 export type ComposeStyle = "block" | "arpeggio" | "bass";
 
 export type ChartLength = "short" | "full";

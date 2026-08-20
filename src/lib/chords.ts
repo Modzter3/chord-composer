@@ -25,19 +25,45 @@ const TONIC_TO_SEMITONE: Record<string, number> = {
   B: 11,
 };
 
-function parseSind(sind: string): { degree: number; quality: ChordQuality } {
+const MAJOR_DIATONIC: Record<number, ChordQuality> = {
+  1: "maj",
+  2: "min",
+  3: "min",
+  4: "maj",
+  5: "maj",
+  6: "min",
+  7: "dim",
+};
+
+const MINOR_DIATONIC: Record<number, ChordQuality> = {
+  1: "min",
+  2: "dim",
+  3: "maj",
+  4: "min",
+  5: "min",
+  6: "maj",
+  7: "maj",
+};
+
+function parseSind(
+  sind: string,
+  scale: "major" | "minor",
+): { degree: number; quality: ChordQuality } {
   const match = sind.match(/^([1-7])/);
   const degree = match ? Number.parseInt(match[1], 10) : 1;
+  let quality = (scale === "major" ? MAJOR_DIATONIC : MINOR_DIATONIC)[degree] ?? "maj";
 
-  if (sind.includes("7") && !sind.includes("add")) {
+  // "57"/"67" = seventh chord; plain "7" is scale degree VII, not a 7th extension.
+  const hasSeventh = /^([1-7])7/.test(sind) && !sind.includes("add");
+
+  if (hasSeventh) {
     if (degree === 5) return { degree, quality: "dom7" };
-    if (degree === 1 || degree === 4) return { degree, quality: "maj7" };
-    return { degree, quality: "min7" };
+    if (quality === "maj") return { degree, quality: "maj7" };
+    if (quality === "min") return { degree, quality: "min7" };
+    if (quality === "dim") return { degree, quality: "min7" };
   }
 
-  if (degree === 7) return { degree, quality: "dim" };
-  if (degree === 1 || degree === 4 || degree === 5) return { degree, quality: "maj" };
-  return { degree, quality: "min" };
+  return { degree, quality };
 }
 
 function chordIntervals(quality: ChordQuality): number[] {
@@ -73,7 +99,7 @@ export function sindToChord(
   scale: "major" | "minor",
   octave = 4,
 ): ParsedChord {
-  const { degree, quality } = parseSind(sind);
+  const { degree, quality } = parseSind(sind, scale);
   const scaleIntervals = scale === "major" ? MAJOR_INTERVALS : MINOR_INTERVALS;
   const rootSemitone = (TONIC_TO_SEMITONE[tonic] ?? 0) + scaleIntervals[degree - 1];
   const intervals = chordIntervals(quality);

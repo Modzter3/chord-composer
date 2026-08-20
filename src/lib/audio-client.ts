@@ -2,6 +2,12 @@
 
 import * as Tone from "tone";
 import { midiToNoteName } from "./chords";
+import {
+  createInstrumentSynth,
+  type ComposeInstrument,
+  type InstrumentSynth,
+  instrumentVolume,
+} from "./instruments";
 import { loadLamejs } from "./lame-loader";
 import { getCompositionDuration, type ScheduledNote } from "./schedule";
 
@@ -76,15 +82,15 @@ async function wavBlobToMp3(wavBlob: Blob): Promise<Blob> {
   return new Blob([merged], { type: "audio/mpeg" });
 }
 
-async function renderAudioBuffer(notes: ScheduledNote[]): Promise<AudioBuffer> {
+async function renderAudioBuffer(
+  notes: ScheduledNote[],
+  instrument: ComposeInstrument,
+): Promise<AudioBuffer> {
   const duration = getCompositionDuration(notes);
 
   const rendered = await Tone.Offline(() => {
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.03, decay: 0.2, sustain: 0.35, release: 0.6 },
-    }).toDestination();
-    synth.volume.value = -8;
+    const synth = createInstrumentSynth(instrument).toDestination();
+    synth.volume.value = instrumentVolume(instrument);
 
     for (const note of notes) {
       synth.triggerAttackRelease(
@@ -101,8 +107,9 @@ async function renderAudioBuffer(notes: ScheduledNote[]): Promise<AudioBuffer> {
 
 export async function renderCompositionAudio(
   notes: ScheduledNote[],
+  instrument: ComposeInstrument = "piano",
 ): Promise<{ wav: Blob; duration: number }> {
-  const audioBuffer = await renderAudioBuffer(notes);
+  const audioBuffer = await renderAudioBuffer(notes, instrument);
   const wav = encodeWav(audioBuffer);
   return { wav, duration: audioBuffer.duration };
 }
@@ -111,17 +118,17 @@ export async function encodeMp3FromWav(wav: Blob): Promise<Blob> {
   return wavBlobToMp3(wav);
 }
 
-let activeSynth: Tone.PolySynth<Tone.Synth> | null = null;
+let activeSynth: InstrumentSynth | null = null;
 
-export async function playComposition(notes: ScheduledNote[]): Promise<void> {
+export async function playComposition(
+  notes: ScheduledNote[],
+  instrument: ComposeInstrument = "piano",
+): Promise<void> {
   await Tone.start();
   await stopComposition();
 
-  activeSynth = new Tone.PolySynth(Tone.Synth, {
-    oscillator: { type: "triangle" },
-    envelope: { attack: 0.03, decay: 0.2, sustain: 0.35, release: 0.6 },
-  }).toDestination();
-  activeSynth.volume.value = -8;
+  activeSynth = createInstrumentSynth(instrument).toDestination();
+  activeSynth.volume.value = instrumentVolume(instrument);
 
   for (const note of notes) {
     activeSynth.triggerAttackRelease(

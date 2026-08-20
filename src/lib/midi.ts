@@ -1,5 +1,6 @@
 import { Midi } from "@tonejs/midi";
 import { midiToNoteName } from "./chords";
+import { getInstrumentOption, type ComposeInstrument } from "./instruments";
 import { scheduleComposition } from "./schedule";
 import type { ComposeStyle, SongSection } from "./types";
 
@@ -9,19 +10,21 @@ export function generateMidi(
     bpm: number;
     beatsPerChord: number;
     style: ComposeStyle;
+    instrument?: ComposeInstrument;
     trackName?: string;
   },
 ): Uint8Array {
-  const { bpm, beatsPerChord, style, trackName = "Chords" } = options;
+  const { bpm, beatsPerChord, style, instrument = "piano", trackName = "Chords" } = options;
   const scheduled = scheduleComposition(sections, { bpm, beatsPerChord, style });
+  const instrumentMeta = getInstrumentOption(instrument);
   const midi = new Midi();
   midi.header.setTempo(bpm);
 
   const track = midi.addTrack();
   track.name = trackName;
   track.channel = 0;
-  track.instrument.number = 0;
-  track.instrument.name = "Acoustic Grand Piano";
+  track.instrument.number = instrumentMeta.midiProgram;
+  track.instrument.name = instrumentMeta.midiName;
 
   for (const note of scheduled) {
     track.addNote({
