@@ -130,6 +130,7 @@ export default function Home() {
   const [renderingAudio, setRenderingAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [chartLength, setChartLength] = useState<ChartLength>("short");
+  const [selectedSectionNames, setSelectedSectionNames] = useState<string[]>([]);
   const [composition, setComposition] = useState<LookupResponse | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wavBlob, setWavBlob] = useState<Blob | null>(null);
@@ -141,7 +142,7 @@ export default function Home() {
   const [showManualChart, setShowManualChart] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const activeSections = useMemo(() => {
+  const availableSections = useMemo(() => {
     if (!composition) return [];
     if (chartLength === "full" && composition.sectionsFull?.length) {
       return composition.sectionsFull;
@@ -149,7 +150,49 @@ export default function Home() {
     return composition.sections;
   }, [composition, chartLength]);
 
-  const sections = activeSections;
+  const selectedSectionsList = useMemo(() => {
+    const selected = new Set(selectedSectionNames);
+    return availableSections.filter((section) => selected.has(section.name));
+  }, [availableSections, selectedSectionNames]);
+
+  const sections = selectedSectionsList;
+
+  function toggleSection(name: string) {
+    if (!composition) return;
+
+    if (selectedSectionNames.includes(name) && selectedSectionNames.length <= 1) return;
+
+    const nextNames = selectedSectionNames.includes(name)
+      ? selectedSectionNames.filter((sectionName) => sectionName !== name)
+      : [...selectedSectionNames, name];
+
+    setSelectedSectionNames(nextNames);
+    const nextSections = availableSections.filter((section) => nextNames.includes(section.name));
+    void rebuildAudio(
+      composition,
+      nextSections as SongSection[],
+      style,
+      playbackMode,
+      instrument,
+      bpm,
+      beatsPerChord,
+    );
+  }
+
+  function selectAllSections() {
+    if (!composition) return;
+    const allNames = availableSections.map((section) => section.name);
+    setSelectedSectionNames(allNames);
+    void rebuildAudio(
+      composition,
+      availableSections as SongSection[],
+      style,
+      playbackMode,
+      instrument,
+      bpm,
+      beatsPerChord,
+    );
+  }
 
   const totalChords = useMemo(
     () => sections.reduce((sum, section) => sum + section.chords.length, 0),
@@ -234,6 +277,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setComposition(null);
+    setSelectedSectionNames([]);
     setAudioUrl(null);
     setWavBlob(null);
     setMidiBytes(null);
@@ -268,6 +312,7 @@ export default function Home() {
         chartLength === "full" && payload.sectionsFull?.length
           ? payload.sectionsFull
           : payload.sections;
+      setSelectedSectionNames(initialSections.map((section) => section.name));
       await rebuildAudio(
         payload,
         initialSections as SongSection[],
@@ -293,7 +338,7 @@ export default function Home() {
       return;
     }
 
-    const scheduled = schedulePlayback(activeSections as SongSection[], {
+    const scheduled = schedulePlayback(selectedSectionsList as SongSection[], {
       playbackMode,
       bpm,
       beatsPerChord,
@@ -412,7 +457,7 @@ export default function Home() {
                             if (composition) {
                               void rebuildAudio(
                                 composition,
-                                activeSections as SongSection[],
+                                selectedSectionsList as SongSection[],
                                 style,
                                 option.id,
                                 instrument,
@@ -461,7 +506,7 @@ export default function Home() {
                           if (composition) {
                             void rebuildAudio(
                               composition,
-                              activeSections as SongSection[],
+                              selectedSectionsList as SongSection[],
                               option.id,
                               playbackMode,
                               instrument,
@@ -503,7 +548,7 @@ export default function Home() {
                           if (composition) {
                             void rebuildAudio(
                               composition,
-                              activeSections as SongSection[],
+                              selectedSectionsList as SongSection[],
                               style,
                               playbackMode,
                               option.id,
@@ -545,6 +590,7 @@ export default function Home() {
                               option.id === "full" && composition.sectionsFull?.length
                                 ? composition.sectionsFull
                                 : composition.sections;
+                            setSelectedSectionNames(sectionsToRender.map((section) => section.name));
                             void rebuildAudio(
                               composition,
                               sectionsToRender as SongSection[],
@@ -573,6 +619,49 @@ export default function Home() {
                 </div>
               </div>
 
+              {composition && availableSections.length > 0 ? (
+                <div>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-violet-100/90">Sections to include</p>
+                    {availableSections.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={selectAllSections}
+                        className="text-xs text-violet-300 transition hover:text-violet-200"
+                      >
+                        Select all
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {availableSections.map((section) => {
+                      const selected = selectedSectionNames.includes(section.name);
+                      return (
+                        <button
+                          key={section.name}
+                          type="button"
+                          onClick={() => toggleSection(section.name)}
+                          className={`rounded-full border px-4 py-2 text-sm transition ${
+                            selected
+                              ? "border-violet-400/50 bg-violet-500/20 text-violet-100"
+                              : "border-white/10 bg-white/[0.03] text-[var(--muted)] hover:border-white/20"
+                          }`}
+                        >
+                          {section.name}
+                          <span className="ml-2 text-xs opacity-70">
+                            {section.chords.length} chords
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    {selectedSectionNames.length} of {availableSections.length} sections selected
+                    — click to toggle. At least one section is required.
+                  </p>
+                </div>
+              ) : null}
+
               <div className={`grid gap-4 sm:grid-cols-2 ${usingTranscription || usingVariation ? "opacity-50" : ""}`}>
                 <label className="block space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between">
@@ -600,7 +689,7 @@ export default function Home() {
                       if (composition) {
                         void rebuildAudio(
                           composition,
-                          activeSections as SongSection[],
+                          selectedSectionsList as SongSection[],
                           style,
                           playbackMode,
                           instrument,
@@ -638,7 +727,7 @@ export default function Home() {
                       if (composition) {
                         void rebuildAudio(
                           composition,
-                          activeSections as SongSection[],
+                          selectedSectionsList as SongSection[],
                           style,
                           playbackMode,
                           instrument,
@@ -825,6 +914,11 @@ export default function Home() {
                       {Math.round(audioDuration)}s
                     </span>
                   ) : null}
+                  {availableSections.length > 0 ? (
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
+                      {selectedSectionNames.length}/{availableSections.length} sections
+                    </span>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -858,7 +952,7 @@ export default function Home() {
               </div>
             )}
 
-            {sections.length > 0 ? (
+            {availableSections.length > 0 ? (
               <div className="glass rounded-[2rem] p-8">
                 <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
                   Chord preview
@@ -873,21 +967,44 @@ export default function Home() {
                   </p>
                 ) : null}
                 <div className="mt-5 space-y-5">
-                  {sections.map((section) => (
-                    <div key={section.name}>
-                      <p className="mb-2 text-sm font-medium text-violet-200/90">{section.name}</p>
-                      <div className="flex flex-wrap gap-2">
-                        {section.chords.map((chord, index) => (
+                  {availableSections.map((section) => {
+                    const selected = selectedSectionNames.includes(section.name);
+                    return (
+                      <div
+                        key={section.name}
+                        className={selected ? undefined : "opacity-40"}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(section.name)}
+                          className="mb-2 flex items-center gap-2 text-sm font-medium text-violet-200/90 transition hover:text-violet-100"
+                        >
                           <span
-                            key={`${section.name}-${chord.label}-${index}`}
-                            className="chord-chip rounded-full px-3 py-1.5 text-sm text-violet-100"
+                            className={`flex h-4 w-4 items-center justify-center rounded border ${
+                              selected
+                                ? "border-violet-400 bg-violet-500/30"
+                                : "border-white/20 bg-transparent"
+                            }`}
                           >
-                            {chord.label}
+                            {selected ? (
+                              <span className="text-[10px] text-violet-100">✓</span>
+                            ) : null}
                           </span>
-                        ))}
+                          {section.name}
+                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          {section.chords.map((chord, index) => (
+                            <span
+                              key={`${section.name}-${chord.label}-${index}`}
+                              className="chord-chip rounded-full px-3 py-1.5 text-sm text-violet-100"
+                            >
+                              {chord.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
