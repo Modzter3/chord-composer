@@ -7,7 +7,7 @@ import {
   renderCompositionAudio,
   stopComposition,
 } from "@/lib/audio-client";
-import { varySections } from "@/lib/chord-variation";
+import { hashSeed, variationBpmOffset, variationTranspose } from "@/lib/chord-variation";
 import { generateMidi } from "@/lib/midi";
 import { INSTRUMENT_OPTIONS } from "@/lib/instruments";
 import { schedulePlayback } from "@/lib/schedule";
@@ -41,7 +41,7 @@ const PLAYBACK_MODE_OPTIONS: {
     id: "variation",
     label: "Suno variation",
     description:
-      "Reharmonized voicings, shifted key, no melody — harder for Suno to match the original.",
+      "Melody transposed and lightly varied — no chord bed. Harder for Suno to match the original.",
   },
   {
     id: "chords",
@@ -171,12 +171,14 @@ export default function Home() {
     ? `${composition.title}|${composition.artist}`
     : "variation";
 
-  const variedPreview = useMemo(() => {
-    if (!usingVariation || sections.length === 0) return null;
-    return varySections(sections as SongSection[], { seed: variationSeed }).sections;
-  }, [usingVariation, sections, variationSeed]);
-
-  const previewSections = variedPreview ?? sections;
+  const variationMeta = useMemo(() => {
+    if (!usingVariation) return null;
+    const seed = hashSeed(variationSeed);
+    return {
+      transpose: variationTranspose(seed),
+      bpmOffset: variationBpmOffset(seed),
+    };
+  }, [usingVariation, variationSeed]);
 
   const playbackModeOptions = PLAYBACK_MODE_OPTIONS.filter(
     (option) => !option.requiresTranscription || transcriptionAvailable,
@@ -784,7 +786,7 @@ export default function Home() {
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
                     1
                   </span>
-                  <span>Pick &quot;Suno variation&quot; so the reference is reharmonized, not the original melody.</span>
+                  <span>Pick &quot;Suno variation&quot; for transposed melody without the chord bed.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
@@ -856,18 +858,22 @@ export default function Home() {
               </div>
             )}
 
-            {previewSections.length > 0 ? (
+            {sections.length > 0 ? (
               <div className="glass rounded-[2rem] p-8">
                 <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
-                  {usingVariation ? "Variation preview" : "Chord preview"}
+                  Chord preview
                 </p>
-                {usingVariation ? (
+                {usingVariation && transcriptionAvailable ? (
                   <p className="mt-2 text-sm text-[var(--muted)]">
-                    Reharmonized from the chart — what you&apos;ll hear in Suno variation mode.
+                    Suno variation plays the melody only (transposed
+                    {variationMeta
+                      ? ` ${variationMeta.transpose > 0 ? "+" : ""}${variationMeta.transpose} semitones`
+                      : ""}
+                    ). Chart chords are not in the audio.
                   </p>
                 ) : null}
                 <div className="mt-5 space-y-5">
-                  {previewSections.map((section) => (
+                  {sections.map((section) => (
                     <div key={section.name}>
                       <p className="mb-2 text-sm font-medium text-violet-200/90">{section.name}</p>
                       <div className="flex flex-wrap gap-2">

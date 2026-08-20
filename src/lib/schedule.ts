@@ -1,4 +1,10 @@
-import { varySections } from "./chord-variation";
+import {
+  hashSeed,
+  variationBpmOffset,
+  variationTranspose,
+  varyMelodyMidi,
+  varySections,
+} from "./chord-variation";
 import type { ComposeStyle, PlaybackMode, SongSection } from "./types";
 
 export interface ScheduledNote {
@@ -45,6 +51,69 @@ export function hasTranscription(sections: SongSection[]): boolean {
   return sections.some((section) => section.transcription != null);
 }
 
+function scheduleVariedMelody(
+  sections: SongSection[],
+  seed: string,
+): ScheduledNote[] {
+  const seedValue = hashSeed(seed);
+  const transpose = variationTranspose(seedValue);
+  const notes: ScheduledNote[] = [];
+  let timeOffset = 0;
+  let melodyIndex = 0;
+
+  for (const section of sections) {
+    const transcription = section.transcription;
+    if (!transcription) continue;
+
+    const bpm = Math.max(70, Math.min(170, transcription.bpm + variationBpmOffset(seedValue)));
+    const beatDur = 60 / bpm;
+
+    for (const note of transcription.melody) {
+      const timeNudge = ((seedValue + melodyIndex) % 5) * beatDur * 0.02;
+      notes.push({
+        midi: varyMelodyMidi(note.midi, melodyIndex, seedValue, transpose),
+        time: timeOffset + (note.beat - 1) * beatDur + timeNudge,
+        duration: note.duration * beatDur * 0.9,
+        velocity: 0.8,
+      });
+      melodyIndex += 1;
+    }
+
+    timeOffset += (transcription.endBeat - 1) * beatDur;
+  }
+
+  return notes;
+}
+
+function scheduleVariedChordSketch(
+  sections: SongSection[],
+  options: {
+    bpm: number;
+    beatsPerChord: number;
+    seed: string;
+  },
+): ScheduledNote[] {
+  const seedValue = hashSeed(options.seed);
+  const transpose = variationTranspose(seedValue);
+  const bpm = Math.max(70, Math.min(170, options.bpm + variationBpmOffset(seedValue)));
+  const beatDuration = 60 / bpm;
+  const chordDuration = options.beatsPerChord * beatDuration;
+  const notes: ScheduledNote[] = [];
+  let time = 0;
+
+  const chords = flattenSections(sections);
+
+  for (const chord of chords) {
+    const transposed = chord.notes.map((midi) => midi + transpose);
+    for (const midi of transposed) {
+      notes.push({ midi, time, duration: chordDuration * 0.95, velocity: 0.68 });
+    }
+    time += chordDuration;
+  }
+
+  return notes;
+}
+
 export function scheduleVariation(
   sections: SongSection[],
   options: {
@@ -53,37 +122,11 @@ export function scheduleVariation(
     seed: string;
   },
 ): ScheduledNote[] {
-  const { sections: varied, bpmOffset, rhythmPattern } = varySections(sections, {
-    seed: options.seed,
-  });
-  const bpm = Math.max(70, Math.min(170, options.bpm + bpmOffset));
-  const beatDuration = 60 / bpm;
-  const notes: ScheduledNote[] = [];
-  let time = 0;
-  let patternIndex = 0;
-
-  const chords = flattenSections(varied);
-
-  for (const chord of chords) {
-    const beats = rhythmPattern[patternIndex % rhythmPattern.length];
-    patternIndex += 1;
-    const chordDuration = beats * beatDuration;
-    const step = chordDuration / Math.max(chord.notes.length, 1);
-
-    chord.notes.forEach((midi, index) => {
-      const stagger = index * step * 0.85;
-      notes.push({
-        midi: midi + (index % 2 === 1 ? 12 : 0),
-        time: time + stagger,
-        duration: chordDuration * 0.55,
-        velocity: 0.58 + (index % 3) * 0.04,
-      });
-    });
-
-    time += chordDuration;
+  if (hasTranscription(sections)) {
+    return scheduleVariedMelody(sections, options.seed);
   }
 
-  return notes;
+  return scheduleVariedChordSketch(sections, options);
 }
 
 export function scheduleComposition(

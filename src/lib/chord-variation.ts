@@ -152,6 +152,16 @@ export function variationRhythmPattern(seed: number, baseBeats: number): number[
   return patterns[seed % patterns.length].map((beats) => Math.max(2, Math.min(6, beats)));
 }
 
+export function varyMelodyMidi(midi: number, index: number, seed: number, transpose: number): number {
+  let varied = midi + transpose;
+
+  // Occasional octave color — keeps contour but shifts fingerprint slightly.
+  if ((seed + index * 11) % 13 === 0) varied += 12;
+  if ((seed + index * 7) % 17 === 0 && varied > 58) varied -= 12;
+
+  return varied;
+}
+
 export function varySections(
   sections: SongSection[],
   options: { seed: string },
