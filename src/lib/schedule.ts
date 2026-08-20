@@ -1,3 +1,4 @@
+import { varySections } from "./chord-variation";
 import type { ComposeStyle, PlaybackMode, SongSection } from "./types";
 
 export interface ScheduledNote {
@@ -42,6 +43,47 @@ export function scheduleTranscription(sections: SongSection[]): ScheduledNote[] 
 
 export function hasTranscription(sections: SongSection[]): boolean {
   return sections.some((section) => section.transcription != null);
+}
+
+export function scheduleVariation(
+  sections: SongSection[],
+  options: {
+    bpm: number;
+    beatsPerChord: number;
+    seed: string;
+  },
+): ScheduledNote[] {
+  const { sections: varied, bpmOffset, rhythmPattern } = varySections(sections, {
+    seed: options.seed,
+  });
+  const bpm = Math.max(70, Math.min(170, options.bpm + bpmOffset));
+  const beatDuration = 60 / bpm;
+  const notes: ScheduledNote[] = [];
+  let time = 0;
+  let patternIndex = 0;
+
+  const chords = flattenSections(varied);
+
+  for (const chord of chords) {
+    const beats = rhythmPattern[patternIndex % rhythmPattern.length];
+    patternIndex += 1;
+    const chordDuration = beats * beatDuration;
+    const step = chordDuration / Math.max(chord.notes.length, 1);
+
+    chord.notes.forEach((midi, index) => {
+      const stagger = index * step * 0.85;
+      notes.push({
+        midi: midi + (index % 2 === 1 ? 12 : 0),
+        time: time + stagger,
+        duration: chordDuration * 0.55,
+        velocity: 0.58 + (index % 3) * 0.04,
+      });
+    });
+
+    time += chordDuration;
+  }
+
+  return notes;
 }
 
 export function scheduleComposition(
@@ -106,10 +148,19 @@ export function schedulePlayback(
     bpm: number;
     beatsPerChord: number;
     style: ComposeStyle;
+    variationSeed?: string;
   },
 ): ScheduledNote[] {
   if (options.playbackMode === "transcription" && hasTranscription(sections)) {
     return scheduleTranscription(sections);
+  }
+
+  if (options.playbackMode === "variation") {
+    return scheduleVariation(sections, {
+      bpm: options.bpm,
+      beatsPerChord: options.beatsPerChord,
+      seed: options.variationSeed ?? "variation",
+    });
   }
 
   return scheduleComposition(sections, {
