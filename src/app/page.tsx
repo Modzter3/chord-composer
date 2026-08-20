@@ -1,20 +1,25 @@
 "use client";
 
 import {
+  downloadBlob,
+  playComposition,
+  renderCompositionAudio,
+  stopComposition,
+} from "@/lib/audio-client";
+import { generateMidi } from "@/lib/midi";
+import { scheduleComposition } from "@/lib/schedule";
+import type { ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
+import {
   Download,
   Loader2,
   Music2,
+  Pause,
   Piano,
+  Play,
   Sparkles,
   Waves,
 } from "lucide-react";
-import { FormEvent, useMemo, useState } from "react";
-import type { ComposeStyle } from "@/lib/types";
-
-interface SectionPreview {
-  name: string;
-  chords: string[];
-}
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 const STYLE_OPTIONS: {
   id: ComposeStyle;
@@ -42,6 +47,14 @@ const STYLE_OPTIONS: {
   },
 ];
 
+function sanitizeFilename(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
 export default function Home() {
   const [song, setSong] = useState("");
   const [artist, setArtist] = useState("");
@@ -49,62 +62,137 @@ export default function Home() {
   const [bpm, setBpm] = useState(120);
   const [beatsPerChord, setBeatsPerChord] = useState(4);
   const [loading, setLoading] = useState(false);
+  const [renderingAudio, setRenderingAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sections, setSections] = useState<SectionPreview[]>([]);
-  const [meta, setMeta] = useState<{ title: string; artist: string; key: string } | null>(
-    null,
-  );
+  const [composition, setComposition] = useState<LookupResponse | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [wavBlob, setWavBlob] = useState<Blob | null>(null);
+  const [mp3Blob, setMp3Blob] = useState<Blob | null>(null);
+  const [midiBytes, setMidiBytes] = useState<Uint8Array | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const sections = composition?.sections ?? [];
 
   const totalChords = useMemo(
     () => sections.reduce((sum, section) => sum + section.chords.length, 0),
     [sections],
   );
 
+  useEffect(() => {
+    return () => {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      void stopComposition();
+    };
+  }, [audioUrl]);
+
+  async function rebuildAudio(data: LookupResponse, nextStyle: ComposeStyle, nextBpm: number, nextBeats: number) {
+    setRenderingAudio(true);
+    setError(null);
+
+    try {
+      const scheduled = scheduleComposition(data.sections as SongSection[], {
+        bpm: nextBpm,
+        beatsPerChord: nextBeats,
+        style: nextStyle,
+      });
+
+      const { wav, mp3, duration } = await renderCompositionAudio(scheduled);
+      const midi = generateMidi(data.sections as SongSection[], {
+        bpm: nextBpm,
+        beatsPerChord: nextBeats,
+        style: nextStyle,
+        trackName: `${data.title} - ${data.artist}`,
+      });
+
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+
+      setWavBlob(wav);
+      setMp3Blob(mp3);
+      setMidiBytes(midi);
+      setAudioDuration(duration);
+      setAudioUrl(URL.createObjectURL(mp3));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to render audio preview.");
+    } finally {
+      setRenderingAudio(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError(null);
-    setSections([]);
-    setMeta(null);
+    setComposition(null);
+    setAudioUrl(null);
+    setWavBlob(null);
+    setMp3Blob(null);
+    setMidiBytes(null);
+    setIsPlaying(false);
+    await stopComposition();
 
     try {
-      const response = await fetch("/api/compose", {
+      const response = await fetch("/api/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ song, artist, style, bpm, beatsPerChord }),
+        body: JSON.stringify({ song, artist, bpm, beatsPerChord }),
       });
 
+      const payload = (await response.json()) as LookupResponse & { error?: string };
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        throw new Error(payload.error ?? "Failed to compose MIDI.");
+        throw new Error(payload.error ?? "Failed to look up song.");
       }
 
-      const title = response.headers.get("X-Song-Title") ?? song;
-      const foundArtist = response.headers.get("X-Song-Artist") ?? artist;
-      const key = response.headers.get("X-Song-Key") ?? "";
-      const sectionsHeader = response.headers.get("X-Song-Sections");
-
-      if (sectionsHeader) {
-        setSections(JSON.parse(sectionsHeader) as SectionPreview[]);
-      }
-
-      setMeta({ title, artist: foundArtist, key });
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.mid`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
+      setComposition(payload);
+      if (payload.bpm) setBpm(payload.bpm);
+      setLoading(false);
+      await rebuildAudio(payload, style, payload.bpm ?? bpm, beatsPerChord);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
       setLoading(false);
     }
   }
+
+  async function handlePlayPreview() {
+    if (!composition) return;
+
+    if (isPlaying) {
+      await stopComposition();
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      return;
+    }
+
+    const scheduled = scheduleComposition(composition.sections as SongSection[], {
+      bpm,
+      beatsPerChord,
+      style,
+    });
+
+    await playComposition(scheduled);
+    setIsPlaying(true);
+
+    const durationMs = (audioDuration || 30) * 1000;
+    window.setTimeout(() => setIsPlaying(false), durationMs);
+  }
+
+  function handleDownloadMidi() {
+    if (!midiBytes || !composition) return;
+    downloadBlob(new Blob([new Uint8Array(midiBytes)], { type: "audio/midi" }), `${sanitizeFilename(composition.title)}.mid`);
+  }
+
+  function handleDownloadMp3() {
+    if (!mp3Blob || !composition) return;
+    downloadBlob(mp3Blob, `${sanitizeFilename(composition.title)}.mp3`);
+  }
+
+  function handleDownloadWav() {
+    if (!wavBlob || !composition) return;
+    downloadBlob(wavBlob, `${sanitizeFilename(composition.title)}.wav`);
+  }
+
+  const busy = loading || renderingAudio;
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -124,12 +212,12 @@ export default function Home() {
               <p className="text-sm uppercase tracking-[0.24em] text-violet-300/80">
                 Chord Composer
               </p>
-              <p className="text-sm text-[var(--muted)]">Song → chords → MIDI</p>
+              <p className="text-sm text-[var(--muted)]">Song → chords → audio reference</p>
             </div>
           </div>
           <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-[var(--muted)] sm:flex">
             <Sparkles className="h-4 w-4 text-violet-300" />
-            Powered by TheoryTab data
+            Suno-ready MP3 export
           </div>
         </header>
 
@@ -137,11 +225,11 @@ export default function Home() {
           <section className="glass rounded-[2rem] p-8 shadow-2xl shadow-violet-950/40">
             <div className="mb-8">
               <h1 className="font-serif text-5xl leading-tight text-white sm:text-6xl">
-                Turn any song into a MIDI draft
+                Chord reference tracks for Suno
               </h1>
               <p className="mt-4 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
-                Enter a song and artist. We look up the chord progression instantly and
-                generate a downloadable MIDI you can drop into your DAW.
+                Look up any song&apos;s chords, preview the progression, then download an MP3
+                to use as audio reference in Suno.
               </p>
             </div>
 
@@ -179,7 +267,12 @@ export default function Home() {
                       <button
                         key={option.id}
                         type="button"
-                        onClick={() => setStyle(option.id)}
+                        onClick={() => {
+                          setStyle(option.id);
+                          if (composition) {
+                            void rebuildAudio(composition, option.id, bpm, beatsPerChord);
+                          }
+                        }}
                         className={`rounded-2xl border p-4 text-left transition ${
                           active
                             ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
@@ -212,7 +305,11 @@ export default function Home() {
                     min={60}
                     max={180}
                     value={bpm}
-                    onChange={(event) => setBpm(Number(event.target.value))}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      setBpm(next);
+                      if (composition) void rebuildAudio(composition, style, next, beatsPerChord);
+                    }}
                     className="w-full"
                   />
                 </label>
@@ -228,7 +325,11 @@ export default function Home() {
                     min={1}
                     max={8}
                     value={beatsPerChord}
-                    onChange={(event) => setBeatsPerChord(Number(event.target.value))}
+                    onChange={(event) => {
+                      const next = Number(event.target.value);
+                      setBeatsPerChord(next);
+                      if (composition) void rebuildAudio(composition, style, bpm, next);
+                    }}
                     className="w-full"
                   />
                 </label>
@@ -242,7 +343,7 @@ export default function Home() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={busy}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-violet-500 to-blue-500 px-6 py-4 text-base font-semibold text-white shadow-lg shadow-violet-900/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
               >
                 {loading ? (
@@ -250,57 +351,125 @@ export default function Home() {
                     <Loader2 className="h-5 w-5 animate-spin" />
                     Looking up chords…
                   </>
+                ) : renderingAudio ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Rendering audio preview…
+                  </>
                 ) : (
                   <>
-                    <Download className="h-5 w-5" />
-                    Compose & Download MIDI
+                    <Sparkles className="h-5 w-5" />
+                    Generate Preview
                   </>
                 )}
               </button>
             </form>
+
+            {composition && audioUrl ? (
+              <div className="mt-8 rounded-[1.5rem] border border-violet-400/20 bg-violet-500/10 p-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.2em] text-violet-300/80">
+                      Audio preview
+                    </p>
+                    <p className="mt-1 text-sm text-[var(--muted)]">
+                      Use the MP3 as Suno audio reference
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handlePlayPreview()}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15"
+                  >
+                    {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    {isPlaying ? "Stop" : "Play preview"}
+                  </button>
+                </div>
+
+                <audio
+                  ref={audioRef}
+                  controls
+                  src={audioUrl}
+                  className="mt-4 w-full"
+                  onEnded={() => setIsPlaying(false)}
+                />
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    onClick={handleDownloadMp3}
+                    className="inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-400"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download MP3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadWav}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download WAV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMidi}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download MIDI
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <aside className="space-y-6">
             <div className="glass animate-float rounded-[2rem] p-8">
               <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
-                How it works
+                For Suno
               </p>
               <ol className="mt-5 space-y-4 text-[var(--muted)]">
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
                     1
                   </span>
-                  <span>Search 75,000+ analyzed songs by title and artist.</span>
+                  <span>Generate a chord reference track from any song.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
                     2
                   </span>
-                  <span>Pull the chord progression section by section.</span>
+                  <span>Preview it in the browser before downloading.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
                     3
                   </span>
-                  <span>Generate a MIDI draft and download it instantly.</span>
+                  <span>Upload the MP3 to Suno as your audio reference.</span>
                 </li>
               </ol>
             </div>
 
-            {meta ? (
+            {composition ? (
               <div className="glass rounded-[2rem] p-8">
                 <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
-                  Last composition
+                  Composition
                 </p>
-                <h2 className="font-serif mt-3 text-3xl text-white">{meta.title}</h2>
-                <p className="mt-1 text-[var(--muted)]">{meta.artist}</p>
+                <h2 className="font-serif mt-3 text-3xl text-white">{composition.title}</h2>
+                <p className="mt-1 text-[var(--muted)]">{composition.artist}</p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
-                    Key: {meta.key}
+                    Key: {composition.key}
                   </span>
                   <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
                     {totalChords} chords
                   </span>
+                  {audioDuration > 0 ? (
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-sm text-violet-100">
+                      {Math.round(audioDuration)}s
+                    </span>
+                  ) : null}
                 </div>
               </div>
             ) : (
@@ -346,10 +515,10 @@ export default function Home() {
                       <div className="flex flex-wrap gap-2">
                         {section.chords.map((chord, index) => (
                           <span
-                            key={`${section.name}-${chord}-${index}`}
+                            key={`${section.name}-${chord.label}-${index}`}
                             className="chord-chip rounded-full px-3 py-1.5 text-sm text-violet-100"
                           >
-                            {chord}
+                            {chord.label}
                           </span>
                         ))}
                       </div>
@@ -362,8 +531,8 @@ export default function Home() {
         </main>
 
         <footer className="mt-10 text-center text-sm text-[var(--muted)]">
-          Chord data sourced from Hooktheory TheoryTab. MIDI drafts are approximations — import
-          into your DAW and tweak from there.
+          Chord data from Hooktheory TheoryTab. MP3/WAV previews are synthesized drafts — perfect
+          as Suno reference, not final production audio.
         </footer>
       </div>
     </div>

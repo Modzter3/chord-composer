@@ -29,3 +29,12 @@ export interface ComposeRequest {
   bpm?: number;
   beatsPerChord?: number;
 }
+
+export interface LookupResponse {
+  title: string;
+  artist: string;
+  key: string;
+  bpm: number;
+  sourceUrl: string;
+  sections: SongSection[];
+}
