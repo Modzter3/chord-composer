@@ -13,6 +13,7 @@ export function generateMidi(
     playbackMode?: PlaybackMode;
     instrument?: ComposeInstrument;
     trackName?: string;
+    variationSeed?: string;
   },
 ): Uint8Array {
   const {
@@ -22,12 +23,14 @@ export function generateMidi(
     playbackMode = "chords",
     instrument = "piano",
     trackName = "Chords",
+    variationSeed,
   } = options;
   const scheduled = schedulePlayback(sections, {
     playbackMode,
     bpm,
     beatsPerChord,
     style,
+    variationSeed,
   });
   const instrumentMeta = getInstrumentOption(instrument);
   const midi = new Midi();

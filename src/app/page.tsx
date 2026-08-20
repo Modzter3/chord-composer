@@ -7,6 +7,7 @@ import {
   renderCompositionAudio,
   stopComposition,
 } from "@/lib/audio-client";
+import { varySections } from "@/lib/chord-variation";
 import { generateMidi } from "@/lib/midi";
 import { INSTRUMENT_OPTIONS } from "@/lib/instruments";
 import { schedulePlayback } from "@/lib/schedule";
@@ -34,16 +35,24 @@ const PLAYBACK_MODE_OPTIONS: {
   id: PlaybackMode;
   label: string;
   description: string;
+  requiresTranscription?: boolean;
 }[] = [
   {
-    id: "transcription",
-    label: "Transcription",
-    description: "Play Hooktheory's actual melody and chord timing.",
+    id: "variation",
+    label: "Suno variation",
+    description:
+      "Reharmonized voicings, shifted key, no melody — harder for Suno to match the original.",
   },
   {
     id: "chords",
     label: "Chord sketch",
-    description: "Simplified chord blocks — good for quick Suno refs.",
+    description: "Straight chord blocks from the chart.",
+  },
+  {
+    id: "transcription",
+    label: "Transcription",
+    description: "Hooktheory melody and timing — Suno may recognize the song.",
+    requiresTranscription: true,
   },
 ];
 
@@ -113,7 +122,7 @@ export default function Home() {
   const [song, setSong] = useState("");
   const [artist, setArtist] = useState("");
   const [style, setStyle] = useState<ComposeStyle>("block");
-  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("transcription");
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>("variation");
   const [instrument, setInstrument] = useState<ComposeInstrument>("piano");
   const [bpm, setBpm] = useState(120);
   const [beatsPerChord, setBeatsPerChord] = useState(4);
@@ -156,6 +165,22 @@ export default function Home() {
 
   const transcriptionAvailable = composition?.hasTranscription ?? false;
   const usingTranscription = playbackMode === "transcription" && transcriptionAvailable;
+  const usingVariation = playbackMode === "variation";
+
+  const variationSeed = composition
+    ? `${composition.title}|${composition.artist}`
+    : "variation";
+
+  const variedPreview = useMemo(() => {
+    if (!usingVariation || sections.length === 0) return null;
+    return varySections(sections as SongSection[], { seed: variationSeed }).sections;
+  }, [usingVariation, sections, variationSeed]);
+
+  const previewSections = variedPreview ?? sections;
+
+  const playbackModeOptions = PLAYBACK_MODE_OPTIONS.filter(
+    (option) => !option.requiresTranscription || transcriptionAvailable,
+  );
 
   async function rebuildAudio(
     data: LookupResponse,
@@ -175,6 +200,7 @@ export default function Home() {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
+        variationSeed: `${data.title}|${data.artist}`,
       });
 
       const { wav, duration } = await renderCompositionAudio(scheduled, nextInstrument);
@@ -185,6 +211,7 @@ export default function Home() {
         playbackMode: nextPlaybackMode,
         instrument: nextInstrument,
         trackName: `${data.title} - ${data.artist}`,
+        variationSeed: `${data.title}|${data.artist}`,
       });
 
       if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -232,7 +259,7 @@ export default function Home() {
 
       setComposition(payload);
       if (payload.bpm) setBpm(payload.bpm);
-      const nextPlaybackMode = payload.hasTranscription ? "transcription" : "chords";
+      const nextPlaybackMode: PlaybackMode = "variation";
       setPlaybackMode(nextPlaybackMode);
       setLoading(false);
       const initialSections =
@@ -269,6 +296,7 @@ export default function Home() {
       bpm,
       beatsPerChord,
       style,
+      variationSeed,
     });
 
     await playComposition(scheduled, instrument);
@@ -367,11 +395,11 @@ export default function Home() {
                 </label>
               </div>
 
-              {transcriptionAvailable ? (
+              {composition ? (
                 <div>
                   <p className="mb-3 text-sm font-medium text-violet-100/90">Playback</p>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {PLAYBACK_MODE_OPTIONS.map((option) => {
+                    {playbackModeOptions.map((option) => {
                       const active = playbackMode === option.id;
                       return (
                         <button
@@ -408,12 +436,12 @@ export default function Home() {
                 </div>
               ) : null}
 
-              <div className={usingTranscription ? "opacity-50" : undefined}>
+              <div className={usingTranscription || usingVariation ? "opacity-50" : undefined}>
                 <p className="mb-3 text-sm font-medium text-violet-100/90">
                   Arrangement style
-                  {usingTranscription ? (
+                  {usingTranscription || usingVariation ? (
                     <span className="ml-2 text-xs font-normal text-[var(--muted)]">
-                      (used in chord sketch mode)
+                      (chord sketch only)
                     </span>
                   ) : null}
                 </p>
@@ -425,7 +453,7 @@ export default function Home() {
                       <button
                         key={option.id}
                         type="button"
-                        disabled={usingTranscription}
+                        disabled={usingTranscription || usingVariation}
                         onClick={() => {
                           setStyle(option.id);
                           if (composition) {
@@ -444,7 +472,7 @@ export default function Home() {
                           active
                             ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
                             : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
-                        } ${usingTranscription ? "cursor-not-allowed" : ""}`}
+                        } ${usingTranscription || usingVariation ? "cursor-not-allowed" : ""}`}
                       >
                         <Icon
                           className={`mb-3 h-5 w-5 ${active ? "text-violet-300" : "text-[var(--muted)]"}`}
@@ -543,14 +571,14 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className={`grid gap-4 sm:grid-cols-2 ${usingTranscription ? "opacity-50" : ""}`}>
+              <div className={`grid gap-4 sm:grid-cols-2 ${usingTranscription || usingVariation ? "opacity-50" : ""}`}>
                 <label className="block space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-violet-100/90">
                       Tempo
-                      {usingTranscription ? (
+                      {usingTranscription || usingVariation ? (
                         <span className="ml-1 text-xs font-normal text-[var(--muted)]">
-                          (from transcription)
+                          {usingVariation ? "(variation sets its own tempo)" : "(from transcription)"}
                         </span>
                       ) : null}
                     </span>
@@ -563,7 +591,7 @@ export default function Home() {
                     min={60}
                     max={180}
                     value={bpm}
-                    disabled={usingTranscription}
+                    disabled={usingTranscription || usingVariation}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBpm(next);
@@ -586,7 +614,7 @@ export default function Home() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-violet-100/90">
                       Beats per chord
-                      {usingTranscription ? (
+                      {usingTranscription || usingVariation ? (
                         <span className="ml-1 text-xs font-normal text-[var(--muted)]">
                           (chord sketch only)
                         </span>
@@ -601,7 +629,7 @@ export default function Home() {
                     min={1}
                     max={8}
                     value={beatsPerChord}
-                    disabled={usingTranscription}
+                    disabled={usingTranscription || usingVariation}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBeatsPerChord(next);
@@ -756,7 +784,7 @@ export default function Home() {
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
                     1
                   </span>
-                  <span>Generate a chord reference track from any song.</span>
+                  <span>Pick &quot;Suno variation&quot; so the reference is reharmonized, not the original melody.</span>
                 </li>
                 <li className="flex gap-3">
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-500/20 text-sm text-violet-200">
@@ -828,13 +856,18 @@ export default function Home() {
               </div>
             )}
 
-            {sections.length > 0 ? (
+            {previewSections.length > 0 ? (
               <div className="glass rounded-[2rem] p-8">
                 <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
-                  Chord preview
+                  {usingVariation ? "Variation preview" : "Chord preview"}
                 </p>
+                {usingVariation ? (
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    Reharmonized from the chart — what you&apos;ll hear in Suno variation mode.
+                  </p>
+                ) : null}
                 <div className="mt-5 space-y-5">
-                  {sections.map((section) => (
+                  {previewSections.map((section) => (
                     <div key={section.name}>
                       <p className="mb-2 text-sm font-medium text-violet-200/90">{section.name}</p>
                       <div className="flex flex-wrap gap-2">
