@@ -19,6 +19,7 @@ export async function POST(request: Request) {
 
     const lookup = await lookupSong(song, artist, {
       manualChart: body.manualChart,
+      chartLength: body.chartLength ?? "short",
     });
     const bpm = body.bpm ?? lookup.bpm;
 
@@ -30,6 +31,13 @@ export async function POST(request: Request) {
       sourceUrl: lookup.sourceUrl,
       source: lookup.source,
       sections: lookup.sections.map((section) => ({
+        name: section.name,
+        chords: section.chords.map((chord) => ({
+          label: chord.label,
+          notes: chord.notes,
+        })),
+      })),
+      sectionsFull: lookup.sectionsFull?.map((section) => ({
         name: section.name,
         chords: section.chords.map((chord) => ({
           label: chord.label,

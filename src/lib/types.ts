@@ -17,11 +17,14 @@ export interface SongLookupResult {
   scale: "major" | "minor";
   bpm: number;
   sections: SongSection[];
+  sectionsFull?: SongSection[];
   sourceUrl: string;
   source: "hooktheory" | "ultimate-guitar" | "manual";
 }
 
 export type ComposeStyle = "block" | "arpeggio" | "bass";
+
+export type ChartLength = "short" | "full";
 
 export interface ComposeRequest {
   song: string;
@@ -30,6 +33,7 @@ export interface ComposeRequest {
   bpm?: number;
   beatsPerChord?: number;
   manualChart?: string;
+  chartLength?: ChartLength;
 }
 
 export interface LookupResponse {
@@ -40,4 +44,5 @@ export interface LookupResponse {
   sourceUrl: string;
   source: SongLookupResult["source"];
   sections: SongSection[];
+  sectionsFull?: SongSection[];
 }

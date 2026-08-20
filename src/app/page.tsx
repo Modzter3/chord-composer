@@ -9,7 +9,7 @@ import {
 } from "@/lib/audio-client";
 import { generateMidi } from "@/lib/midi";
 import { scheduleComposition } from "@/lib/schedule";
-import type { ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
+import type { ChartLength, ComposeStyle, LookupResponse, SongSection } from "@/lib/types";
 import {
   Download,
   Loader2,
@@ -48,6 +48,23 @@ const STYLE_OPTIONS: {
   },
 ];
 
+const CHART_LENGTH_OPTIONS: {
+  id: ChartLength;
+  label: string;
+  description: string;
+}[] = [
+  {
+    id: "short",
+    label: "Short reference",
+    description: "Main progressions only — best for Suno (~30 sec).",
+  },
+  {
+    id: "full",
+    label: "Full song",
+    description: "Every chord in the chart — longer, complete run-through.",
+  },
+];
+
 function sanitizeFilename(title: string): string {
   return title
     .toLowerCase()
@@ -76,6 +93,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [renderingAudio, setRenderingAudio] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chartLength, setChartLength] = useState<ChartLength>("short");
   const [composition, setComposition] = useState<LookupResponse | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [wavBlob, setWavBlob] = useState<Blob | null>(null);
@@ -87,7 +105,15 @@ export default function Home() {
   const [showManualChart, setShowManualChart] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const sections = composition?.sections ?? [];
+  const activeSections = useMemo(() => {
+    if (!composition) return [];
+    if (chartLength === "full" && composition.sectionsFull?.length) {
+      return composition.sectionsFull;
+    }
+    return composition.sections;
+  }, [composition, chartLength]);
+
+  const sections = activeSections;
 
   const totalChords = useMemo(
     () => sections.reduce((sum, section) => sum + section.chords.length, 0),
@@ -101,19 +127,25 @@ export default function Home() {
     };
   }, [audioUrl]);
 
-  async function rebuildAudio(data: LookupResponse, nextStyle: ComposeStyle, nextBpm: number, nextBeats: number) {
+  async function rebuildAudio(
+    data: LookupResponse,
+    sectionsToRender: SongSection[],
+    nextStyle: ComposeStyle,
+    nextBpm: number,
+    nextBeats: number,
+  ) {
     setRenderingAudio(true);
     setError(null);
 
     try {
-      const scheduled = scheduleComposition(data.sections as SongSection[], {
+      const scheduled = scheduleComposition(sectionsToRender, {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
       });
 
       const { wav, duration } = await renderCompositionAudio(scheduled);
-      const midi = generateMidi(data.sections as SongSection[], {
+      const midi = generateMidi(sectionsToRender, {
         bpm: nextBpm,
         beatsPerChord: nextBeats,
         style: nextStyle,
@@ -148,7 +180,14 @@ export default function Home() {
       const response = await fetch("/api/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ song, artist, bpm, beatsPerChord, manualChart: manualChart.trim() || undefined }),
+        body: JSON.stringify({
+          song,
+          artist,
+          bpm,
+          beatsPerChord,
+          chartLength,
+          manualChart: manualChart.trim() || undefined,
+        }),
       });
 
       const payload = (await response.json()) as LookupResponse & { error?: string };
@@ -159,7 +198,11 @@ export default function Home() {
       setComposition(payload);
       if (payload.bpm) setBpm(payload.bpm);
       setLoading(false);
-      await rebuildAudio(payload, style, payload.bpm ?? bpm, beatsPerChord);
+      const initialSections =
+        chartLength === "full" && payload.sectionsFull?.length
+          ? payload.sectionsFull
+          : payload.sections;
+      await rebuildAudio(payload, initialSections as SongSection[], style, payload.bpm ?? bpm, beatsPerChord);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
       setLoading(false);
@@ -176,7 +219,7 @@ export default function Home() {
       return;
     }
 
-    const scheduled = scheduleComposition(composition.sections as SongSection[], {
+    const scheduled = scheduleComposition(activeSections as SongSection[], {
       bpm,
       beatsPerChord,
       style,
@@ -291,7 +334,13 @@ export default function Home() {
                         onClick={() => {
                           setStyle(option.id);
                           if (composition) {
-                            void rebuildAudio(composition, option.id, bpm, beatsPerChord);
+                            void rebuildAudio(
+                              composition,
+                              activeSections as SongSection[],
+                              option.id,
+                              bpm,
+                              beatsPerChord,
+                            );
                           }
                         }}
                         className={`rounded-2xl border p-4 text-left transition ${
@@ -303,6 +352,49 @@ export default function Home() {
                         <Icon
                           className={`mb-3 h-5 w-5 ${active ? "text-violet-300" : "text-[var(--muted)]"}`}
                         />
+                        <p className="font-medium text-white">{option.label}</p>
+                        <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
+                          {option.description}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-3 text-sm font-medium text-violet-100/90">Chart length</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {CHART_LENGTH_OPTIONS.map((option) => {
+                    const active = chartLength === option.id;
+                    const disabled = option.id === "full" && !composition?.sectionsFull?.length && !!composition;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => {
+                          setChartLength(option.id);
+                          if (composition) {
+                            const sectionsToRender =
+                              option.id === "full" && composition.sectionsFull?.length
+                                ? composition.sectionsFull
+                                : composition.sections;
+                            void rebuildAudio(
+                              composition,
+                              sectionsToRender as SongSection[],
+                              style,
+                              bpm,
+                              beatsPerChord,
+                            );
+                          }
+                        }}
+                        disabled={disabled}
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          active
+                            ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
+                            : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
+                        } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
+                      >
                         <p className="font-medium text-white">{option.label}</p>
                         <p className="mt-1 text-sm leading-relaxed text-[var(--muted)]">
                           {option.description}
@@ -329,7 +421,15 @@ export default function Home() {
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBpm(next);
-                      if (composition) void rebuildAudio(composition, style, next, beatsPerChord);
+                      if (composition) {
+                        void rebuildAudio(
+                          composition,
+                          activeSections as SongSection[],
+                          style,
+                          next,
+                          beatsPerChord,
+                        );
+                      }
                     }}
                     className="w-full"
                   />
@@ -349,7 +449,15 @@ export default function Home() {
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBeatsPerChord(next);
-                      if (composition) void rebuildAudio(composition, style, bpm, next);
+                      if (composition) {
+                        void rebuildAudio(
+                          composition,
+                          activeSections as SongSection[],
+                          style,
+                          bpm,
+                          next,
+                        );
+                      }
                     }}
                     className="w-full"
                   />

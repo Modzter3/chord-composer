@@ -35,6 +35,7 @@ export async function POST(request: Request) {
 
     const lookup = await lookupSong(song, artist, {
       manualChart: body.manualChart,
+      chartLength: body.chartLength ?? "short",
     });
     const bpm = body.bpm ?? lookup.bpm;
 

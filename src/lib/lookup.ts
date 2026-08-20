@@ -1,13 +1,29 @@
 import { chartToLookupResult } from "./chord-chart";
 import { lookupSong as lookupHooktheory } from "./hooktheory";
 import { lookupUltimateGuitar } from "./ultimate-guitar";
-import type { SongLookupResult } from "./types";
+import type { ChartLength, SongLookupResult } from "./types";
+
+function withChartVariants(
+  result: SongLookupResult,
+  chartLength: ChartLength,
+): SongLookupResult {
+  if (result.sectionsFull) {
+    return {
+      ...result,
+      sections: chartLength === "full" ? result.sectionsFull : result.sections,
+    };
+  }
+
+  return result;
+}
 
 export async function lookupSong(
   song: string,
   artist: string,
-  options?: { manualChart?: string },
+  options?: { manualChart?: string; chartLength?: ChartLength },
 ): Promise<SongLookupResult> {
+  const chartLength = options?.chartLength ?? "short";
+
   if (options?.manualChart?.trim()) {
     return chartToLookupResult(
       options.manualChart,
@@ -15,14 +31,17 @@ export async function lookupSong(
       artist,
       "manual-input",
       "manual",
+      chartLength,
     );
   }
 
   try {
-    return await lookupHooktheory(song, artist);
+    const result = await lookupHooktheory(song, artist);
+    return withChartVariants({ ...result, sectionsFull: result.sections }, chartLength);
   } catch (hooktheoryError) {
     try {
-      return await lookupUltimateGuitar(song, artist);
+      const result = await lookupUltimateGuitar(song, artist);
+      return withChartVariants(result, chartLength);
     } catch (ultimateGuitarError) {
       const hooktheoryMessage =
         hooktheoryError instanceof Error ? hooktheoryError.message : "Hooktheory lookup failed.";

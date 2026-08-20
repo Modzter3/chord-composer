@@ -1,13 +1,11 @@
 import { lookupSong } from "../src/lib/lookup.ts";
 
-const result = await lookupSong("Lay It On The Line", "Triumph");
-console.log("source:", result.source);
-console.log("key:", result.key);
-console.log(
-  "sections:",
-  result.sections.map((section) => ({
-    name: section.name,
-    chords: section.chords.length,
-    preview: section.chords.slice(0, 6).map((chord) => chord.label),
-  })),
-);
+for (const chartLength of ["short", "full"] as const) {
+  const result = await lookupSong("Lay It On The Line", "Triumph", { chartLength });
+  const count = result.sections.reduce((sum, section) => sum + section.chords.length, 0);
+  const fullCount = result.sectionsFull?.reduce((sum, section) => sum + section.chords.length, 0) ?? count;
+  console.log(chartLength, "source:", result.source, "active:", count, "full:", fullCount);
+  console.log(
+    result.sections.map((section) => `${section.name}(${section.chords.length})`).join(", "),
+  );
+}
