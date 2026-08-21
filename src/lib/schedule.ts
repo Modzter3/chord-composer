@@ -23,6 +23,10 @@ function flattenSections(sections: SongSection[]): { label: string; notes: numbe
 }
 
 export function scheduleTranscription(sections: SongSection[]): ScheduledNote[] {
+  return scheduleTranscriptionMelody(sections);
+}
+
+function scheduleTranscriptionMelody(sections: SongSection[]): ScheduledNote[] {
   const notes: ScheduledNote[] = [];
   let timeOffset = 0;
 
@@ -45,6 +49,77 @@ export function scheduleTranscription(sections: SongSection[]): ScheduledNote[] 
   }
 
   return notes;
+}
+
+function scheduleVoicedChord(
+  notes: ScheduledNote[],
+  chordNotes: number[],
+  time: number,
+  duration: number,
+  style: ComposeStyle,
+  velocity: number,
+): void {
+  if (style === "block") {
+    for (const midi of chordNotes) {
+      notes.push({ midi, time, duration, velocity });
+    }
+    return;
+  }
+
+  if (style === "arpeggio") {
+    const step = duration / Math.max(chordNotes.length, 1);
+    chordNotes.forEach((midi, index) => {
+      notes.push({
+        midi,
+        time: time + index * step,
+        duration: step * 0.9,
+        velocity: velocity * 0.95,
+      });
+    });
+    return;
+  }
+
+  const bass = chordNotes[0];
+  const harmony = chordNotes.slice(1);
+  notes.push({ midi: bass - 12, time, duration, velocity: velocity * 1.08 });
+  for (const midi of harmony) {
+    notes.push({ midi, time, duration, velocity: velocity * 0.82 });
+  }
+}
+
+function scheduleTranscriptionChords(
+  sections: SongSection[],
+  style: ComposeStyle,
+): ScheduledNote[] {
+  const notes: ScheduledNote[] = [];
+  let timeOffset = 0;
+
+  for (const section of sections) {
+    const transcription = section.transcription;
+    if (!transcription) continue;
+
+    const beatDur = 60 / transcription.bpm;
+
+    for (const chord of transcription.timedChords) {
+      const time = timeOffset + (chord.beat - 1) * beatDur;
+      const duration = chord.duration * beatDur * 0.92;
+      scheduleVoicedChord(notes, chord.notes, time, duration, style, 0.34);
+    }
+
+    timeOffset += (transcription.endBeat - 1) * beatDur;
+  }
+
+  return notes;
+}
+
+export function scheduleCombined(
+  sections: SongSection[],
+  options: { style: ComposeStyle },
+): ScheduledNote[] {
+  return [
+    ...scheduleTranscriptionMelody(sections),
+    ...scheduleTranscriptionChords(sections, options.style),
+  ];
 }
 
 export function hasTranscription(sections: SongSection[]): boolean {
@@ -196,6 +271,10 @@ export function schedulePlayback(
 ): ScheduledNote[] {
   if (options.playbackMode === "transcription" && hasTranscription(sections)) {
     return scheduleTranscription(sections);
+  }
+
+  if (options.playbackMode === "combined" && hasTranscription(sections)) {
+    return scheduleCombined(sections, { style: options.style });
   }
 
   if (options.playbackMode === "variation") {

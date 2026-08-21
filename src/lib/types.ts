@@ -49,7 +49,7 @@ export type { ComposeInstrument } from "./instruments";
 
 export type ComposeStyle = "block" | "arpeggio" | "bass";
 
-export type PlaybackMode = "transcription" | "chords" | "variation";
+export type PlaybackMode = "transcription" | "chords" | "variation" | "combined";
 
 export type ChartLength = "short" | "full";
 

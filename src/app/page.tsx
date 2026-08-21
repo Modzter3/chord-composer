@@ -49,9 +49,15 @@ const PLAYBACK_MODE_OPTIONS: {
     description: "Straight chord blocks from the chart.",
   },
   {
+    id: "combined",
+    label: "Melody + chords",
+    description: "Transcribed melody with chord bed underneath — fullest reference.",
+    requiresTranscription: true,
+  },
+  {
     id: "transcription",
-    label: "Transcription",
-    description: "Hooktheory melody and timing — Suno may recognize the song.",
+    label: "Melody only",
+    description: "Hooktheory melody and timing — lighter, less harmonic clutter.",
     requiresTranscription: true,
   },
 ];
@@ -208,7 +214,10 @@ export default function Home() {
 
   const transcriptionAvailable = composition?.hasTranscription ?? false;
   const usingTranscription = playbackMode === "transcription" && transcriptionAvailable;
+  const usingCombined = playbackMode === "combined" && transcriptionAvailable;
   const usingVariation = playbackMode === "variation";
+  const usingTimedPlayback = usingTranscription || usingCombined || usingVariation;
+  const chordStyleEnabled = playbackMode === "chords" || usingCombined;
 
   const variationSeed = composition
     ? `${composition.title}|${composition.artist}`
@@ -483,12 +492,16 @@ export default function Home() {
                 </div>
               ) : null}
 
-              <div className={usingTranscription || usingVariation ? "opacity-50" : undefined}>
+              <div className={chordStyleEnabled ? undefined : "opacity-50"}>
                 <p className="mb-3 text-sm font-medium text-violet-100/90">
                   Arrangement style
-                  {usingTranscription || usingVariation ? (
+                  {!chordStyleEnabled ? (
                     <span className="ml-2 text-xs font-normal text-[var(--muted)]">
-                      (chord sketch only)
+                      (melody + chords or chord sketch)
+                    </span>
+                  ) : usingCombined ? (
+                    <span className="ml-2 text-xs font-normal text-[var(--muted)]">
+                      (chord layer)
                     </span>
                   ) : null}
                 </p>
@@ -500,7 +513,7 @@ export default function Home() {
                       <button
                         key={option.id}
                         type="button"
-                        disabled={usingTranscription || usingVariation}
+                        disabled={!chordStyleEnabled}
                         onClick={() => {
                           setStyle(option.id);
                           if (composition) {
@@ -519,7 +532,7 @@ export default function Home() {
                           active
                             ? "border-violet-400/50 bg-violet-500/15 shadow-lg shadow-violet-900/20"
                             : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
-                        } ${usingTranscription || usingVariation ? "cursor-not-allowed" : ""}`}
+                        } ${!chordStyleEnabled ? "cursor-not-allowed" : ""}`}
                       >
                         <Icon
                           className={`mb-3 h-5 w-5 ${active ? "text-violet-300" : "text-[var(--muted)]"}`}
@@ -662,14 +675,18 @@ export default function Home() {
                 </div>
               ) : null}
 
-              <div className={`grid gap-4 sm:grid-cols-2 ${usingTranscription || usingVariation ? "opacity-50" : ""}`}>
+              <div className={`grid gap-4 sm:grid-cols-2 ${usingTimedPlayback ? "opacity-50" : ""}`}>
                 <label className="block space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-violet-100/90">
                       Tempo
-                      {usingTranscription || usingVariation ? (
+                      {usingTimedPlayback ? (
                         <span className="ml-1 text-xs font-normal text-[var(--muted)]">
-                          {usingVariation ? "(variation sets its own tempo)" : "(from transcription)"}
+                          {usingVariation
+                            ? "(variation sets its own tempo)"
+                            : usingCombined
+                              ? "(from transcription)"
+                              : "(from transcription)"}
                         </span>
                       ) : null}
                     </span>
@@ -682,7 +699,7 @@ export default function Home() {
                     min={60}
                     max={180}
                     value={bpm}
-                    disabled={usingTranscription || usingVariation}
+                    disabled={usingTimedPlayback}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBpm(next);
@@ -705,7 +722,7 @@ export default function Home() {
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-violet-100/90">
                       Beats per chord
-                      {usingTranscription || usingVariation ? (
+                      {usingTimedPlayback ? (
                         <span className="ml-1 text-xs font-normal text-[var(--muted)]">
                           (chord sketch only)
                         </span>
@@ -720,7 +737,7 @@ export default function Home() {
                     min={1}
                     max={8}
                     value={beatsPerChord}
-                    disabled={usingTranscription || usingVariation}
+                    disabled={usingTimedPlayback}
                     onChange={(event) => {
                       const next = Number(event.target.value);
                       setBeatsPerChord(next);
@@ -957,7 +974,12 @@ export default function Home() {
                 <p className="text-sm uppercase tracking-[0.22em] text-violet-300/80">
                   Chord preview
                 </p>
-                {usingVariation && transcriptionAvailable ? (
+                {usingCombined ? (
+                  <p className="mt-2 text-sm text-[var(--muted)]">
+                    Melody + chords layers the transcribed melody over timed chord voicings.
+                    Use arrangement style to shape the chord bed (block, arpeggio, or bass + harmony).
+                  </p>
+                ) : usingVariation && transcriptionAvailable ? (
                   <p className="mt-2 text-sm text-[var(--muted)]">
                     Suno variation plays the melody only (transposed
                     {variationMeta
